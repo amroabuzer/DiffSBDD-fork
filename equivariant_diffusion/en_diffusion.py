@@ -300,17 +300,20 @@ class EnVariationalDiffusion(nn.Module):
                mu_pocket + sigma[pocket_mask] * eps_pocket
 
     def noised_representation(self, xh_lig, xh_pocket, lig_mask, pocket_mask,
-                              gamma_t):
+                              gamma_t): 
+        #x_h should be the features of ligands and pockets
         # Compute alpha_t and sigma_t from gamma.
         alpha_t = self.alpha(gamma_t, xh_lig)
         sigma_t = self.sigma(gamma_t, xh_lig)
+        #alpha_t was the term we multiply with mean!
+        # sigma_t is the variance :)
 
-        # Sample zt ~ Normal(alpha_t x, sigma_t)
+        # Sample zt ~ Normal(alpha_t x, sigma_t) - for reparametrization
         eps_lig, eps_pocket = self.sample_combined_position_feature_noise(
             lig_mask, pocket_mask)
 
         # Sample z_t given x, h for timestep t, from q(z_t | x, h)
-        z_t_lig = alpha_t[lig_mask] * xh_lig + sigma_t[lig_mask] * eps_lig
+        z_t_lig = alpha_t[lig_mask] * xh_lig + sigma_t[lig_mask] * eps_lig # THIS IS REPARAMETRIZATION!!
         z_t_pocket = alpha_t[pocket_mask] * xh_pocket + \
                      sigma_t[pocket_mask] * eps_pocket
 
@@ -503,6 +506,7 @@ class EnVariationalDiffusion(nn.Module):
     def sample_p_zs_given_zt(self, s, t, zt_lig, zt_pocket, ligand_mask,
                              pocket_mask, fix_noise=False):
         """Samples from zs ~ p(zs | zt). Only used during sampling."""
+        # reverse noise part!
         gamma_s = self.gamma(s)
         gamma_t = self.gamma(t)
 
@@ -727,27 +731,31 @@ class EnVariationalDiffusion(nn.Module):
                                  device=z_pocket.device)
 
         # Iteratively sample according to a pre-defined schedule
-        schedule = self.get_repaint_schedule(resamplings, jump_length, timesteps)
+        schedule = self.get_repaint_schedule(resamplings, jump_length, timesteps) # each step could have higher/lower noise steps 
         s = timesteps - 1
         for i, n_denoise_steps in enumerate(schedule):
             for j in range(n_denoise_steps):
                 # Denoise one time step: t -> s
                 s_array = torch.full((n_samples, 1), fill_value=s,
-                                     device=z_lig.device)
-                t_array = s_array + 1
-                s_array = s_array / timesteps
-                t_array = t_array / timesteps
-
+                                     device=z_lig.device) #creates tensor of size n_samples filled with fill_value = s --- here think of s as z in the paper
+                t_array = s_array + 1 # z + 1
+                s_array = s_array / timesteps # i.e. the percentage of z nearly done: 0.9,0.8...
+                t_array = t_array / timesteps # i.e. the percentage of z + 1 nearly done 1, 0.9, 0.8
+                ''' ----------------------------- '''
                 # sample known nodes from the input
-                gamma_s = self.inflate_batch_array(self.gamma(s_array),
-                                                   ligand['x'])
+                # gamma_s: [s_array.shape(), 1, 1, ...] => gamma_s.shape = [s_array.shape, ligand['x']]
+                gamma_s = self.inflate_batch_array(self.gamma(s_array), 
+                                                   ligand['x']) # self.gamma(s_array) is a network => outputs how much noise 
+                #should be added or removed based on the timestep provided (this is learned) then dimennsion is expanded by that number
                 z_lig_known, z_pocket_known, _, _ = self.noised_representation(
                     xh0_lig, xh0_pocket, ligand['mask'], pocket['mask'], gamma_s)
-
+                # this is the forward noise we apply to the z_t-1|zdata - you can see this in xh0_lig | since this is forward noise and we are not given z_data gamma_s estimates the z_data (self.gamma)
+                
                 # sample inpainted part
                 z_lig_unknown, z_pocket_unknown = self.sample_p_zs_given_zt(
                     s_array, t_array, z_lig, z_pocket, ligand['mask'],
                     pocket['mask'])
+                # this is the backward (denoising) step of z_t-1 | z_t
 
                 # move center of mass of the noised part to the center of mass
                 # of the corresponding denoised part before combining them
@@ -781,6 +789,7 @@ class EnVariationalDiffusion(nn.Module):
                     torch.cat((z_lig[:, :self.n_dims],
                                z_pocket[:, :self.n_dims]), dim=0), combined_mask
                 )
+                ''' ----------------------------- '''
 
                 # save frame at the end of a resample cycle
                 if n_denoise_steps > jump_length or i == len(schedule) - 1:
@@ -853,7 +862,7 @@ class EnVariationalDiffusion(nn.Module):
                (p_sigma ** 2) - 0.5 * d
 
     @staticmethod
-    def inflate_batch_array(array, target):
+    def  inflate_batch_array(array, target):
         """
         Inflates the batch array (array) with only a single axis
         (i.e. shape = (batch_size,), or possibly more empty axes
@@ -1063,7 +1072,7 @@ class PositiveLinear(torch.nn.Module):
 
 class GammaNetwork(torch.nn.Module):
     """The gamma network models a monotonic increasing function.
-    Construction as in the VDM paper."""
+    Construction as in the VDM paper."""  #determines how much noise is added/ removed in each data generation step 
     def __init__(self):
         super().__init__()
 
