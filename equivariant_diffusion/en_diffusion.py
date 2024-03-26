@@ -737,8 +737,13 @@ class EnVariationalDiffusion(nn.Module):
         all_times = torch.arange(s, 1)
         gammas = self.gamma(all_times)
         alpha_t_bar = torch.prod(gammas)
-        def paramed_mean(z_lig, , t, alpha_t, alpha_t_bar, epsilon):
-            return 1/(torch.sqrt(alpha_t))*()
+        def mu_theta(z_lig, z_pocket, alpha_t, alpha_t_bar, eps_lig, eps_pocket):
+            z_t = torch.cat((z_lig, z_pocket))
+            epsilon = torch.cat((eps_lig, eps_pocket))
+            beta_t = 1 - alpha_t
+            omega = beta_t/(torch.sqrt(1-alpha_t_bar))
+            return 1/(torch.sqrt(alpha_t))*(z_t - omega*epsilon)
+        
         for i, n_denoise_steps in enumerate(schedule):
             for j in range(n_denoise_steps):
                 # Denoise one time step: t -> s
@@ -748,15 +753,26 @@ class EnVariationalDiffusion(nn.Module):
                 s_array = s_array / timesteps # i.e. the percentage of z nearly done: 0.9,0.8...
                 t_array = t_array / timesteps # i.e. the percentage of z + 1 nearly done 1, 0.9, 0.8
                 ''' ----------------------------- '''
+                x_pocket = z_pocket[:, :self.n_dims]
+                h_pocket = z_pocket[:, self.n_dims:]
                 eps_lig, eps_pocket = self.dynamics(z_lig, z_pocket, t, ligand['mask'], pocket['mask'])
-                alpha_t = gammas[s]
+                # alpha_t = gammas[s] # not sure about this
+                alpha_t = torch.sqrt(torch.sigmoid(-gammas[s]))
+                sigma_t = torch.sqrt(torch.sigmoid(gammas[s]))
                 alpha_t_bar /= alpha_t
-                # alpha_t = torch.sqrt(torch.sigmoid(-gamma_s))
-                z_pocket_t = (z_pocket - torch.sqrt(1-alpha_t_bar) * eps_pocket) / (torch.sqrt(alpha_t_bar))
-                L = 0.5 * torch.sqrt(torch.sum(torch.square(z_pocket - z_pocket_t)))
-                x_pocket = z_pocket
-                h_pocket = 
-                
+                z_pocket_t_hat = (z_pocket - torch.sqrt(1-alpha_t_bar) * eps_pocket) / (torch.sqrt(alpha_t_bar))
+                L = 0.5 * torch.sqrt(torch.sum(torch.square(xh0_pocket - z_pocket_t_hat)))
+                L.backward()
+                x_grad, h_grad= x_pocket.grad, h_pocket.grad
+                com_x_pocket = scatter_mean(
+                    x_pocket[[pocket_fixed.bool().view(-1)]],
+                    pocket['mask'][pocket_fixed.bool().view(-1)]
+                )
+                g = (x_grad - com_x_pocket, h_grad)
+                mu_theta_m = mu_theta_ = mu_theta(z_lig, z_pocket, alpha_t, alpha_t_bar, eps_lig, eps_pocket)
+                mu_theta_p = mu_theta_ - S*g
+                z_pocket = mu_theta_m + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
+                z_ligand = mu_theta_m + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
                 ''' ----------------------------- '''
                 # sample known nodes from the input
                 # gamma_s: [s_array.shape(), 1, 1, ...] => gamma_s.shape = [s_array.shape, ligand['x']]
