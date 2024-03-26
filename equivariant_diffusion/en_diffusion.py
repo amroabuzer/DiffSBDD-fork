@@ -771,8 +771,8 @@ class EnVariationalDiffusion(nn.Module):
                 g = (x_grad - com_x_pocket, h_grad)
                 mu_theta_m = mu_theta_ = mu_theta(z_lig, z_pocket, alpha_t, alpha_t_bar, eps_lig, eps_pocket)
                 mu_theta_p = mu_theta_ - S*g
-                z_pocket = mu_theta_m + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
-                z_ligand = mu_theta_m + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
+                z_pocket = mu_theta_p + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
+                z_lig = mu_theta_m + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
                 ''' ----------------------------- '''
                 # sample known nodes from the input
                 # gamma_s: [s_array.shape(), 1, 1, ...] => gamma_s.shape = [s_array.shape, ligand['x']]
