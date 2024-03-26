@@ -774,52 +774,6 @@ class EnVariationalDiffusion(nn.Module):
                 z_pocket = mu_theta_p + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
                 z_lig = mu_theta_m + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
                 ''' ----------------------------- '''
-                # sample known nodes from the input
-                # gamma_s: [s_array.shape(), 1, 1, ...] => gamma_s.shape = [s_array.shape, ligand['x']]
-                #should be added or removed based on the timestep provided (this is learned) then dimennsion is expanded by that number
-                z_lig_known, z_pocket_known, _, _ = self.noised_representation(
-                    xh0_lig, xh0_pocket, ligand['mask'], pocket['mask'], gamma_s)
-                # this is the forward noise we apply to the z_t-1|zdata - you can see this in xh0_lig | since this is forward noise and we are not given z_data gamma_s estimates the z_data (self.gamma)
-                
-                # sample inpainted part
-                z_lig_unknown, z_pocket_unknown = self.sample_p_zs_given_zt(
-                    s_array, t_array, z_lig, z_pocket, ligand['mask'],
-                    pocket['mask'])
-                # this is the backward (denoising) step of z_t-1 | z_t
-
-                # move center of mass of the noised part to the center of mass
-                # of the corresponding denoised part before combining them
-                # -> the resulting system should be COM-free
-                com_noised = scatter_mean(
-                    torch.cat((z_lig_known[:, :self.n_dims][lig_fixed.bool().view(-1)],
-                               z_pocket_known[:, :self.n_dims][pocket_fixed.bool().view(-1)])),
-                    torch.cat((ligand['mask'][lig_fixed.bool().view(-1)],
-                               pocket['mask'][pocket_fixed.bool().view(-1)])),
-                    dim=0
-                )
-                com_denoised = scatter_mean(
-                    torch.cat((z_lig_unknown[:, :self.n_dims][lig_fixed.bool().view(-1)],
-                               z_pocket_unknown[:, :self.n_dims][pocket_fixed.bool().view(-1)])),
-                    torch.cat((ligand['mask'][lig_fixed.bool().view(-1)],
-                               pocket['mask'][pocket_fixed.bool().view(-1)])),
-                    dim=0
-                )
-                z_lig_known[:, :self.n_dims] = \
-                    z_lig_known[:, :self.n_dims] + (com_denoised - com_noised)[ligand['mask']]
-                z_pocket_known[:, :self.n_dims] = \
-                    z_pocket_known[:, :self.n_dims] + (com_denoised - com_noised)[pocket['mask']]
-
-                # combine
-                z_lig = z_lig_known * lig_fixed + \
-                        z_lig_unknown * (1 - lig_fixed)
-                z_pocket = z_pocket_known * pocket_fixed + \
-                           z_pocket_unknown * (1 - pocket_fixed)
-
-                self.assert_mean_zero_with_mask(
-                    torch.cat((z_lig[:, :self.n_dims],
-                               z_pocket[:, :self.n_dims]), dim=0), combined_mask
-                )
-                ''' ----------------------------- '''
 
                 # save frame at the end of a resample cycle
                 if n_denoise_steps > jump_length or i == len(schedule) - 1:
