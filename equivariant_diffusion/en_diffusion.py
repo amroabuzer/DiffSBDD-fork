@@ -41,7 +41,7 @@ class EnVariationalDiffusion(nn.Module):
                                                  timesteps=timesteps,
                                                  precision=noise_precision)
 
-        # The network that will predict the denoising.
+        # The network that will predict the denoising. :D
         self.dynamics = dynamics
 
         self.atom_nf = atom_nf
@@ -571,6 +571,7 @@ class EnVariationalDiffusion(nn.Module):
             lig_indices=lig_indices,
             pocket_indices=pocket_indices
         )
+        #standard gaussian shiz
         z_h_lig = self.sample_gaussian(
             size=(len(lig_indices), self.atom_nf),
             device=lig_indices.device)
@@ -679,7 +680,7 @@ class EnVariationalDiffusion(nn.Module):
 
     @torch.no_grad()
     def inpaint(self, ligand, pocket, lig_fixed, pocket_fixed, resamplings=1,
-                jump_length=1, return_frames=1, timesteps=None):
+                jump_length=1, return_frames=1, timesteps=None, S=1):
         """
         Draw samples from the generative model while fixing parts of the input.
         Optionally, return intermediate states for visualization purposes.
@@ -723,7 +724,7 @@ class EnVariationalDiffusion(nn.Module):
         # Noised representation at step t=T
         z_lig, z_pocket = self.sample_combined_position_feature_noise(
             ligand['mask'], pocket['mask'])
-
+        alpha_t_bar = 1
         # Output tensors
         out_lig = torch.zeros((return_frames,) + z_lig.size(),
                               device=z_lig.device)
@@ -733,6 +734,11 @@ class EnVariationalDiffusion(nn.Module):
         # Iteratively sample according to a pre-defined schedule
         schedule = self.get_repaint_schedule(resamplings, jump_length, timesteps) # each step could have higher/lower noise steps 
         s = timesteps - 1
+        all_times = torch.arange(s, 1)
+        gammas = self.gamma(all_times)
+        alpha_t_bar = torch.prod(gammas)
+        def paramed_mean(z_lig, , t, alpha_t, alpha_t_bar, epsilon):
+            return 1/(torch.sqrt(alpha_t))*()
         for i, n_denoise_steps in enumerate(schedule):
             for j in range(n_denoise_steps):
                 # Denoise one time step: t -> s
@@ -742,10 +748,18 @@ class EnVariationalDiffusion(nn.Module):
                 s_array = s_array / timesteps # i.e. the percentage of z nearly done: 0.9,0.8...
                 t_array = t_array / timesteps # i.e. the percentage of z + 1 nearly done 1, 0.9, 0.8
                 ''' ----------------------------- '''
+                eps_lig, eps_pocket = self.dynamics(z_lig, z_pocket, t, ligand['mask'], pocket['mask'])
+                alpha_t = gammas[s]
+                alpha_t_bar /= alpha_t
+                # alpha_t = torch.sqrt(torch.sigmoid(-gamma_s))
+                z_pocket_t = (z_pocket - torch.sqrt(1-alpha_t_bar) * eps_pocket) / (torch.sqrt(alpha_t_bar))
+                L = 0.5 * torch.sqrt(torch.sum(torch.square(z_pocket - z_pocket_t)))
+                x_pocket = z_pocket
+                h_pocket = 
+                
+                ''' ----------------------------- '''
                 # sample known nodes from the input
                 # gamma_s: [s_array.shape(), 1, 1, ...] => gamma_s.shape = [s_array.shape, ligand['x']]
-                gamma_s = self.inflate_batch_array(self.gamma(s_array), 
-                                                   ligand['x']) # self.gamma(s_array) is a network => outputs how much noise 
                 #should be added or removed based on the timestep provided (this is learned) then dimennsion is expanded by that number
                 z_lig_known, z_pocket_known, _, _ = self.noised_representation(
                     xh0_lig, xh0_pocket, ligand['mask'], pocket['mask'], gamma_s)
