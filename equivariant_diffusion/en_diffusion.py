@@ -734,7 +734,8 @@ class EnVariationalDiffusion(nn.Module):
         # Iteratively sample according to a pre-defined schedule
         schedule = self.get_repaint_schedule(resamplings, jump_length, timesteps) # each step could have higher/lower noise steps 
         s = timesteps - 1
-        all_times = torch.arange(s, 1)
+        print(s)
+        all_times = torch.arange(1, s)
         gammas = self.gamma(all_times)
         alpha_t_bar = torch.prod(gammas)
         def mu_theta(z_lig, z_pocket, alpha_t, alpha_t_bar, eps_lig, eps_pocket):
