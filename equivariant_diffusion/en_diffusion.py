@@ -758,17 +758,14 @@ class EnVariationalDiffusion(nn.Module):
                 s_array = s_array / timesteps # i.e. the percentage of z nearly done: 0.9,0.8...
                 t_array = t_array / timesteps # i.e. the percentage of z + 1 nearly done 1, 0.9, 0.8
                 ''' ----------------------------- '''
-                x_pocket = z_pocket[:, :self.n_dims]
-                h_pocket = z_pocket[:, self.n_dims:]
-                # x_pocket.requires_grad = True
-                # h_pocket.requires_grad = True
-                # z_pocket.requires_grad = True
-                eps_lig, eps_pocket = self.dynamics(z_lig, z_pocket, s_array, ligand['mask'], pocket['mask'])
+                eps_lig, eps_pocket = self.dynamics(z_lig, z_pocket, s_array,
+                                                    ligand['mask'], pocket['mask'])
                 alpha_t = alpha_ts[s-2]
                 sigma_t = sigma_ts[s-2]
                 alpha_t_bar /= alpha_t
                 with torch.enable_grad():
-                    z_pocket_t_hat = torch.tensor((z_pocket - torch.sqrt(1-alpha_t_bar) * eps_pocket) / (torch.sqrt(alpha_t_bar)), requires_grad=True)
+                    z_pocket_t_hat = torch.tensor((z_pocket - torch.sqrt(1-alpha_t_bar) * eps_pocket) \
+                        / (torch.sqrt(alpha_t_bar)), requires_grad=True)
                     output = loss(z_pocket_t_hat, xh0_pocket)
                     output.backward()
                     z_pocket_grad = z_pocket_t_hat.grad
@@ -778,8 +775,10 @@ class EnVariationalDiffusion(nn.Module):
                 g = torch.cat((x_grad - com_x_grad, h_grad), dim=1)
                 mu_theta_lig = mu_theta(z_lig, alpha_t, alpha_t_bar, eps_lig)
                 mu_theta_pocket = mu_theta(z_pocket, alpha_t, alpha_t_bar, eps_pocket) - S*g
-                z_pocket = mu_theta_pocket + sigma_t * self.sample_gaussian(size=len(len(mu_theta_pocket)), device=z_lig.device)
-                z_lig = mu_theta_lig + sigma_t * self.sample_gaussian(size=len(len(mu_theta_lig)), device=z_lig.device)
+                z_pocket = mu_theta_pocket + \
+                    sigma_t * self.sample_gaussian(size=mu_theta_pocket.shape, device=z_lig.device)[:None]
+                z_lig = mu_theta_lig + \
+                    sigma_t * self.sample_gaussian(size=mu_theta_lig.shape, device=z_lig.device)
                 ''' ----------------------------- '''
 
                 # save frame at the end of a resample cycle
