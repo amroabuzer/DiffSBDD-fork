@@ -734,17 +734,21 @@ class EnVariationalDiffusion(nn.Module):
         # Iteratively sample according to a pre-defined schedule
         schedule = self.get_repaint_schedule(resamplings, jump_length, timesteps) # each step could have higher/lower noise steps 
         s = timesteps - 1
-        print(s)
-        all_times = torch.arange(1, s)
+        all_times = torch.arange(1, s, dtype=torch.float, device=z_lig.device)
+        all_times /= timesteps
+        all_times = all_times[:None]
+        # print(all_times[:,None])
+        # print(self.gamma(torch.tensor(s, dtype=float)))
         gammas = self.gamma(all_times)
-        alpha_t_bar = torch.prod(gammas)
-        def mu_theta(z_lig, z_pocket, alpha_t, alpha_t_bar, eps_lig, eps_pocket):
-            z_t = torch.cat((z_lig, z_pocket))
-            epsilon = torch.cat((eps_lig, eps_pocket))
+        alpha_ts = torch.sqrt(torch.sigmoid(-gammas))
+        sigma_ts = torch.sqrt(torch.sigmoid(gammas))
+        alpha_t_bar = torch.prod(alpha_ts)
+        loss = nn.MSELoss()
+        def mu_theta(z_t, alpha_t, alpha_t_bar, epsilon):
             beta_t = 1 - alpha_t
             omega = beta_t/(torch.sqrt(1-alpha_t_bar))
             return 1/(torch.sqrt(alpha_t))*(z_t - omega*epsilon)
-        
+
         for i, n_denoise_steps in enumerate(schedule):
             for j in range(n_denoise_steps):
                 # Denoise one time step: t -> s
@@ -756,24 +760,26 @@ class EnVariationalDiffusion(nn.Module):
                 ''' ----------------------------- '''
                 x_pocket = z_pocket[:, :self.n_dims]
                 h_pocket = z_pocket[:, self.n_dims:]
-                eps_lig, eps_pocket = self.dynamics(z_lig, z_pocket, t, ligand['mask'], pocket['mask'])
-                # alpha_t = gammas[s] # not sure about this
-                alpha_t = torch.sqrt(torch.sigmoid(-gammas[s]))
-                sigma_t = torch.sqrt(torch.sigmoid(gammas[s]))
+                # x_pocket.requires_grad = True
+                # h_pocket.requires_grad = True
+                # z_pocket.requires_grad = True
+                eps_lig, eps_pocket = self.dynamics(z_lig, z_pocket, s_array, ligand['mask'], pocket['mask'])
+                alpha_t = alpha_ts[s-2]
+                sigma_t = sigma_ts[s-2]
                 alpha_t_bar /= alpha_t
-                z_pocket_t_hat = (z_pocket - torch.sqrt(1-alpha_t_bar) * eps_pocket) / (torch.sqrt(alpha_t_bar))
-                L = 0.5 * torch.sqrt(torch.sum(torch.square(xh0_pocket - z_pocket_t_hat)))
-                L.backward()
-                x_grad, h_grad= x_pocket.grad, h_pocket.grad
-                com_x_pocket = scatter_mean(
-                    x_pocket[[pocket_fixed.bool().view(-1)]],
-                    pocket['mask'][pocket_fixed.bool().view(-1)]
-                )
-                g = (x_grad - com_x_pocket, h_grad)
-                mu_theta_m = mu_theta_ = mu_theta(z_lig, z_pocket, alpha_t, alpha_t_bar, eps_lig, eps_pocket)
-                mu_theta_p = mu_theta_ - S*g
-                z_pocket = mu_theta_p + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
-                z_lig = mu_theta_m + sigma_t * self.sample_gaussian(size=len(len(sigma_t)), device=z_lig.device)
+                with torch.enable_grad():
+                    z_pocket_t_hat = torch.tensor((z_pocket - torch.sqrt(1-alpha_t_bar) * eps_pocket) / (torch.sqrt(alpha_t_bar)), requires_grad=True)
+                    output = loss(z_pocket_t_hat, xh0_pocket)
+                    output.backward()
+                    z_pocket_grad = z_pocket_t_hat.grad
+                    x_grad, h_grad = z_pocket_grad[:, :self.n_dims], z_pocket_grad[:, self.n_dims:]
+                    
+                com_x_grad = torch.mean(x_grad, dim=0)
+                g = torch.cat((x_grad - com_x_grad, h_grad), dim=1)
+                mu_theta_lig = mu_theta(z_lig, alpha_t, alpha_t_bar, eps_lig)
+                mu_theta_pocket = mu_theta(z_pocket, alpha_t, alpha_t_bar, eps_pocket) - S*g
+                z_pocket = mu_theta_pocket + sigma_t * self.sample_gaussian(size=len(len(mu_theta_pocket)), device=z_lig.device)
+                z_lig = mu_theta_lig + sigma_t * self.sample_gaussian(size=len(len(mu_theta_lig)), device=z_lig.device)
                 ''' ----------------------------- '''
 
                 # save frame at the end of a resample cycle
