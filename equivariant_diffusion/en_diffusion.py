@@ -680,7 +680,7 @@ class EnVariationalDiffusion(nn.Module):
 
     @torch.no_grad()
     def inpaint(self, ligand, pocket, lig_fixed, pocket_fixed, resamplings=1,
-                jump_length=1, return_frames=1, timesteps=None, S=1):
+                jump_length=1, return_frames=1, timesteps=None, S=1e-5):
         """
         Draw samples from the generative model while fixing parts of the input.
         Optionally, return intermediate states for visualization purposes.
@@ -772,7 +772,7 @@ class EnVariationalDiffusion(nn.Module):
                     x_grad, h_grad = z_pocket_grad[:, :self.n_dims], z_pocket_grad[:, self.n_dims:]
                     
                 com_x_grad = torch.mean(x_grad, dim=0)
-                g = torch.cat((x_grad - com_x_grad, h_grad), dim=1)
+                g = torch.cat((x_grad - com_x_grad[None:], h_grad), dim=1)
                 mu_theta_lig = mu_theta(z_lig, alpha_t, alpha_t_bar, eps_lig)
                 mu_theta_pocket = mu_theta(z_pocket, alpha_t, alpha_t_bar, eps_pocket) - S*g
                 z_pocket = mu_theta_pocket + \
